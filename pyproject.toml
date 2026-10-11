@@ -35,7 +35,7 @@ fluxclip = "fluxclip.cli:main"
 fluxclip-mcp = "fluxclip.mcp_server:main"
 
 [project.urls]
-Homepage = "https://github.com/OWNER/fluxclip"
+Homepage = "https://github.com/shahid2866/fluxclip"
 
 [tool.hatch.build.targets.wheel]
 packages = ["fluxclip"]

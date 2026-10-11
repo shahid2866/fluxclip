@@ -39,13 +39,13 @@ fluxclip run "https://youtube.com/watch?v=..." -n 5
 Requirements: **Python 3.10+** and **FFmpeg** (`brew install ffmpeg`, `sudo apt install ffmpeg`, or `winget install ffmpeg`).
 
 ```bash
-pip install "fluxclip[all] @ git+https://github.com/OWNER/fluxclip"
+pip install "fluxclip[all] @ git+https://github.com/shahid2866/fluxclip"
 ```
 
 Or from source:
 
 ```bash
-git clone https://github.com/OWNER/fluxclip && cd fluxclip
+git clone https://github.com/shahid2866/fluxclip && cd fluxclip
 pip install -e ".[all]"
 ```
 
@@ -126,7 +126,7 @@ The first run installs everything (a few minutes); then your browser opens http:
 ### Run it with Docker
 
 ```bash
-git clone https://github.com/OWNER/fluxclip && cd fluxclip
+git clone https://github.com/shahid2866/fluxclip && cd fluxclip
 docker compose up -d --build
 # open http://localhost:3000  → Settings → paste your API key
 ```
