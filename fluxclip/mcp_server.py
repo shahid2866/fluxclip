@@ -18,6 +18,7 @@ except ImportError:  # MCP Python SDK v1
     from mcp.server.fastmcp import FastMCP as _Server  # type: ignore
 
 from .captions import THEMES
+from .gallery import write_gallery
 from .highlights import find_highlights
 from .pipeline import PipelineConfig, process_video as _process
 from .render import RenderOptions, make_thumbnail, render_clip as _render
@@ -37,10 +38,10 @@ mcp = _Server(
 )
 
 
-def _opts(aspect: str, layout: str, caption_style: str, title_overlay: bool,
+def _opts(aspect: str, layout: str, caption_style: str, headline: bool,
           font: str = "Poppins", max_height: int | None = None) -> RenderOptions:
     return RenderOptions(aspect=aspect, layout=layout, caption_style=caption_style,
-                         title_overlay=title_overlay, font=font, max_height=max_height)
+                         headline=headline, font=font, max_height=max_height)
 
 
 @mcp.tool()
@@ -72,40 +73,53 @@ def find_clips(source: str, num_clips: int = 5, min_seconds: float = 20, max_sec
 
 @mcp.tool()
 def render_clips(source: str, clips: list[dict[str, Any]], output_dir: str = "fluxclip_output",
-                 aspect: str = "9:16", layout: str = "auto", caption_style: str = "bold",
-                 title_overlay: bool = False, whisper_model: str = "small") -> list[dict[str, Any]]:
+                 aspect: str = "9:16", layout: str = "auto", caption_style: str = "opus",
+                 headline: bool = True, whisper_model: str = "small") -> list[dict[str, Any]]:
     """Render several clips. Each item in `clips` needs "start" and "end" (seconds)
-    and may include "title". layout: auto | crop (follow speaker) | fit (blurred bg).
-    caption_style: bold | neon | fire | minimal | boxed | none. aspect: 9:16 | 1:1 | 4:5 | 16:9."""
+    and may include "title" (Title Case) and "headline" (4-9 word on-screen hook shown
+    for the first 5 s). layout: auto | crop (follow speaker) | fit (blurred bg).
+    caption_style: opus | bold | neon | fire | minimal | boxed | none. aspect: 9:16 | 1:1 | 4:5 | 16:9."""
     video = resolve_input(source)
     t = transcribe(video, whisper_model) if caption_style != "none" else None
     out = Path(output_dir).expanduser().resolve()
-    opts = _opts(aspect, layout, caption_style, title_overlay)
+    out.mkdir(parents=True, exist_ok=True)
+    opts = _opts(aspect, layout, caption_style, headline)
     results = []
     for i, c in enumerate(clips, 1):
         title = str(c.get("title") or f"clip {i}")
         path = out / f"{i:02d}_{slugify(title)}.mp4"
-        meta = _render(video, float(c["start"]), float(c["end"]), path, t, opts, title=title)
+        meta = _render(video, float(c["start"]), float(c["end"]), path, t, opts,
+                       title=title, headline=c.get("headline"))
         meta["thumbnail"] = str(make_thumbnail(path))
         meta["title"] = title
+        for k in ("headline", "topic", "score", "caption", "hashtags", "reason"):
+            if k in c:
+                meta[k] = c[k]
+        if t is not None:
+            meta["transcript"] = t.text_between(meta["start"], meta["end"])
         results.append(meta)
+    gallery = write_gallery({"source": str(video), "clips": results,
+                             "video_duration": t.duration if t else 0,
+                             "language": t.language if t else ""}, out)
+    for r in results:
+        r["gallery"] = str(gallery)
     return results
 
 
 @mcp.tool()
 def render_clip(source: str, start: float, end: float, title: str | None = None,
                 output_dir: str = "fluxclip_output", aspect: str = "9:16", layout: str = "auto",
-                caption_style: str = "bold", title_overlay: bool = False) -> dict[str, Any]:
+                caption_style: str = "opus", headline: bool = True) -> dict[str, Any]:
     """Render a single clip between start and end (seconds)."""
     return render_clips(source, [{"start": start, "end": end, "title": title}], output_dir,
-                        aspect, layout, caption_style, title_overlay)[0]
+                        aspect, layout, caption_style, headline)[0]
 
 
 @mcp.tool()
 def process_video(source: str, num_clips: int = 5, min_seconds: float = 20, max_seconds: float = 60,
                   provider: str = "auto", instructions: str | None = None,
                   output_dir: str = "fluxclip_output", aspect: str = "9:16", layout: str = "auto",
-                  caption_style: str = "bold", whisper_model: str = "small") -> dict[str, Any]:
+                  caption_style: str = "opus", whisper_model: str = "small") -> dict[str, Any]:
     """One-shot pipeline: transcribe, pick the best clips, render them with captions."""
     cfg = PipelineConfig(num_clips=num_clips, min_len=min_seconds, max_len=max_seconds,
                          provider=provider, instructions=instructions, whisper_model=whisper_model,
@@ -128,7 +142,8 @@ def make_shorts(video: str, count: int = 5, focus: str = "") -> str:
         "1. Call get_transcript.\n"
         "2. Pick moments 20-60s long that open with a strong hook, are self-contained and end on a payoff. "
         "Start/end on sentence boundaries using the transcript timestamps.\n"
-        "3. Call render_clips with start, end and a punchy title for each.\n"
+        "3. Call render_clips with start, end, a Title Case title, a 4-9 word headline hook, "
+        "a topic, a 0-100 score and hashtags for each.\n"
         "4. Report each file path with a suggested caption and 3-5 hashtags."
     )
 

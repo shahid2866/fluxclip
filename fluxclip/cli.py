@@ -39,11 +39,13 @@ def _add_render(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("rendering")
     g.add_argument("--aspect", default="9:16", choices=list(ASPECTS))
     g.add_argument("--layout", default="auto", choices=LAYOUTS)
-    g.add_argument("--captions", default="bold", choices=[*THEMES, "none"])
+    g.add_argument("--captions", default="opus", choices=[*THEMES, "none"])
     g.add_argument("--font", default="Poppins")
     g.add_argument("--words", type=int, default=3, help="Words per caption")
-    g.add_argument("--caption-pos", type=float, default=0.72, help="Vertical position 0-1")
-    g.add_argument("--title-overlay", action="store_true", help="Show the clip title for 3s")
+    g.add_argument("--caption-pos", type=float, default=0.78, help="Vertical position 0-1")
+    g.add_argument("--no-headline", dest="headline", action="store_false",
+                   help="Disable the white headline box shown for the first 5 s")
+    g.add_argument("--headline-seconds", type=float, default=5.0)
     g.add_argument("--max-height", type=int, default=None, help="e.g. 1280 for faster renders")
     g.add_argument("--crf", type=int, default=20)
 
@@ -51,7 +53,7 @@ def _add_render(p: argparse.ArgumentParser) -> None:
 def _render_opts(a) -> RenderOptions:
     return RenderOptions(aspect=a.aspect, layout=a.layout, caption_style=a.captions, font=a.font,
                          words_per_caption=a.words, caption_position=a.caption_pos,
-                         title_overlay=a.title_overlay, crf=a.crf, max_height=a.max_height)
+                         headline=a.headline, headline_seconds=a.headline_seconds, crf=a.crf, max_height=a.max_height)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -83,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--start", type=float, required=True)
     p.add_argument("--end", type=float, required=True)
     p.add_argument("-o", "--out", default="clip.mp4")
-    p.add_argument("--title", default=None)
+    p.add_argument("--title", default=None, help="Headline text shown on the clip")
     _add_common(p); _add_render(p)
 
     sub.add_parser("mcp", help="Start the MCP server (for Claude Desktop, Claude Code, Cursor…)")

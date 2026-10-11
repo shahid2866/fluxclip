@@ -26,11 +26,17 @@ A great clip:
 - Avoids intros, outros, sponsor reads, and "like and subscribe".
 
 Respond with ONLY valid JSON, no prose, in this exact shape:
-{"clips": [{"start": 12.3, "end": 48.9, "title": "short punchy title (max 60 chars)",
+{"summary": "one sentence describing what this part of the video covers",
+"clips": [{"start": 12.3, "end": 48.9,
+"title": "Title Case YouTube-Shorts title, specific and curiosity-driven (max 60 chars)",
+"headline": "on-screen hook shown for the first 5 seconds, 4-9 words, sentence case",
+"topic": "2-4 word theme used to group related clips",
 "hook": "the opening line that grabs attention", "reason": "why this will perform",
 "score": 87, "hashtags": ["#tag1", "#tag2", "#tag3"],
 "caption": "a 1-2 sentence social media caption for posting"}]}
 
+Good titles use concrete numbers, names and outcomes, e.g. "AI Dog Portrait Business Makes $300K a Month".
+Good headlines read like a bold claim, e.g. "A dog-art app became a $300K-a-month business".
 "score" is 0-100 virality. Use the transcript timestamps (seconds) for start/end."""
 
 
@@ -39,6 +45,8 @@ class Clip:
     start: float
     end: float
     title: str = ""
+    headline: str = ""
+    topic: str = ""
     hook: str = ""
     reason: str = ""
     score: float = 0.0
@@ -142,6 +150,8 @@ def _llm_clips(t: Transcript, n: int, min_len: float, max_len: float,
                 out.append(Clip(
                     start=float(it["start"]), end=float(it["end"]),
                     title=str(it.get("title", "")).strip(),
+                    headline=str(it.get("headline", "")).strip(),
+                    topic=str(it.get("topic", "")).strip(),
                     hook=str(it.get("hook", "")).strip(),
                     reason=str(it.get("reason", "")).strip(),
                     score=float(it.get("score", 50)),
@@ -207,6 +217,7 @@ def _heuristic_clips(t: Transcript, n: int, min_len: float, max_len: float) -> l
         cands.append(Clip(
             start=s.start, end=segs[j].end,
             title=(first[:57] + "…") if len(first) > 60 else first,
+            headline=" ".join(first.split()[:9]),
             hook=first, reason="Selected by offline heuristic (hook words, pacing, questions).",
             score=round(sc, 1), hashtags=["#shorts", "#viral", "#podcast"],
             caption=text[:140],
@@ -238,6 +249,8 @@ def find_highlights(
     for c in clips:
         if not c.title:
             c.title = t.text_between(c.start, c.start + 6)[:60]
+        if not c.headline:
+            c.headline = c.title
         if not math.isfinite(c.score):
             c.score = 0
     return clips

@@ -22,6 +22,9 @@ class CaptionTheme:
 
 
 THEMES: dict[str, CaptionTheme] = {
+    # Default: uppercase white, active word bright green, thick outline + soft shadow.
+    "opus": CaptionTheme("&H00FFFFFF", "&H0022FF3C", "&H00000000", 5, 3, True, 0.072,
+                         back="&H90000000", pop=False),
     "bold": CaptionTheme("&H00FFFFFF", "&H0000E5FF", "&H00000000", 6, 2, True, 0.075),
     "neon": CaptionTheme("&H00FFFFFF", "&H0066FF33", "&H00000000", 6, 3, True, 0.075),
     "fire": CaptionTheme("&H00FFFFFF", "&H00245BFF", "&H00000000", 6, 2, True, 0.075),

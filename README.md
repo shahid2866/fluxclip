@@ -25,7 +25,9 @@ fluxclip run "https://youtube.com/watch?v=..." -n 5
 | 🧠 **AI clip picker** | Finds hooks, stories and payoffs. Works with **Claude**, **OpenAI** (or any OpenAI-compatible API: Groq, OpenRouter, LM Studio), **Ollama** (local), or an offline heuristic — no key required |
 | 🎯 **Speaker tracking** | Face detection + a "virtual camera" with dead-zone smoothing and hard cuts when the speaker changes |
 | 🌫️ **Blurred-background layout** | Automatic fallback for screen recordings / slides / no faces |
-| 💬 **Animated captions** | Word-by-word highlight in 5 styles: `bold`, `neon`, `fire`, `minimal`, `boxed` + optional title hook overlay |
+| 💬 **Animated captions** | Uppercase word-by-word captions with the active word highlighted. Styles: `opus` (default, green highlight), `bold`, `neon`, `fire`, `minimal`, `boxed` |
+| 📰 **Auto headline** | A white rounded headline box with a scroll-stopping hook for the first 5 seconds of every clip |
+| 🗂️ **Results page** | `index.html` in the output folder: preview every clip with its score, timestamps, transcript, reason and one-click copy of title/caption |
 | 🤖 **MCP server** | Plug into Claude Desktop, Claude Code, Cursor, etc. Claude reads the transcript, picks the moments, and renders them |
 | 📦 **Ready to post** | MP4 (H.264/AAC), `.srt` subtitles, thumbnails, and `clips.json` with titles, hooks, captions and hashtags |
 | 📐 **Any format** | `9:16`, `1:1`, `4:5`, `16:9` |
@@ -69,7 +71,7 @@ fluxclip run podcast.mp4 -n 5 --min 20 --max 60
 fluxclip run video.mp4 \
   -n 8 --min 15 --max 45 \
   --prompt "focus on actionable money tips" \  # steer the AI
-  --captions neon --words 2 --title-overlay \  # caption look
+  --captions neon --words 2 --no-headline \    # caption look
   --layout crop \                              # auto | crop | fit
   --aspect 9:16 \                              # 9:16 | 1:1 | 4:5 | 16:9
   --whisper-model medium --language hi \       # better accuracy / force language
@@ -81,7 +83,7 @@ Other commands:
 ```bash
 fluxclip transcribe video.mp4 --text            # readable transcript
 fluxclip highlights video.mp4 -n 5              # JSON clip suggestions, no rendering
-fluxclip render video.mp4 --start 62.4 --end 101 --title "My hook"   # render exact timestamps
+fluxclip render video.mp4 --start 62.4 --end 101 --title "My hook"   # render exact timestamps + headline
 fluxclip mcp                                    # start MCP server
 ```
 
@@ -129,6 +131,7 @@ There's also a `make_shorts` prompt that walks the assistant through the workflo
 
 ```
 clips/
+├── index.html        # open in a browser to review, download and copy captions
 ├── 01_the-biggest-mistake-creators-make.mp4
 ├── 01_the-biggest-mistake-creators-make.srt
 ├── 01_the-biggest-mistake-creators-make.jpg

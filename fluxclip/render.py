@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import captions as cap_mod
+from .headline import FONT_DIR, render_headline_png
 from .reframe import compute_track, cv2
 from .transcribe import Transcript
 from .utils import FluxClipError, log, probe, require_binary, run
@@ -20,11 +21,13 @@ LAYOUTS = ("auto", "crop", "fit")
 class RenderOptions:
     aspect: str = "9:16"
     layout: str = "auto"              # auto | crop (follow speaker) | fit (blurred background)
-    caption_style: str = "bold"       # bold | neon | fire | minimal | boxed | none
-    font: str = "Poppins"
+    caption_style: str = "opus"       # opus | bold | neon | fire | minimal | boxed | none
+    font: str = "Poppins"             # bundled Poppins Bold is always available
     words_per_caption: int = 3
-    caption_position: float = 0.72
-    title_overlay: bool = False
+    caption_position: float = 0.78    # vertical centre of captions (0 top – 1 bottom)
+    headline: bool = True             # white headline box over the first seconds
+    headline_seconds: float = 5.0
+    headline_position: float = 0.58
     crf: int = 20
     preset: str = "veryfast"
     max_height: int | None = None     # e.g. 1280 for faster, smaller renders
@@ -71,6 +74,7 @@ def render_clip(
     transcript: Transcript | None = None,
     opts: RenderOptions | None = None,
     title: str | None = None,
+    headline: str | None = None,
 ) -> dict:
     """Render one vertical clip. Returns metadata about what was produced."""
     require_binary("ffmpeg")
@@ -96,15 +100,21 @@ def render_clip(
 
     with tempfile.TemporaryDirectory(prefix="fluxclip-") as td:
         tdp = Path(td)
-        vf_tail = ""
+        post: list[str] = []  # filters applied to the composed vertical frame
         if opts.caption_style != "none" and transcript is not None:
             ass = cap_mod.build_ass(
                 transcript.words_between(start, end), start, end, out_w, out_h,
                 theme=opts.caption_style, font=opts.font, max_words=opts.words_per_caption,
-                position=opts.caption_position, title=title if opts.title_overlay else None,
+                position=opts.caption_position,
             )
             (tdp / "subs.ass").write_text(ass, encoding="utf-8")
-            vf_tail = ",ass=subs.ass"
+            shutil.copytree(FONT_DIR, tdp / "fonts")
+            post.append("ass=subs.ass:fontsdir=fonts")
+
+        head_png = None
+        head_text = (headline or title or "").strip()
+        if opts.headline and head_text:
+            head_png = render_headline_png(head_text, out_w, tdp / "headline.png")
 
         track = None
         if layout in ("auto", "crop"):
@@ -117,29 +127,40 @@ def render_clip(
             else:
                 layout = "crop"
 
-        audio_map = ["-map", "1:a:0?"] if info.has_audio else []
         enc = ["-c:v", "libx264", "-preset", opts.preset, "-crf", str(opts.crf),
                "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart"]
+        dur = end - start
 
         if layout == "crop":
             raw = tdp / "crop.mp4"
             _write_cropped(video, start, end, crop_w, info.height, out_w, out_h,
                            track.centers, track.n_frames, track.fps, raw)
-            cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(raw),
-                   "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", video,
-                   "-map", "0:v:0", *audio_map]
-            if vf_tail:
-                cmd += ["-vf", vf_tail.lstrip(",")]
-            cmd += [*enc, "-shortest", "out.mp4"]
+            inputs = ["-i", str(raw), "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", video]
+            audio = ["-map", "1:a:0?"] if info.has_audio else []
+            base = "[0:v]null[base]"
+            next_input = 2
         else:
-            fc = (f"[0:v]split=2[a][b];"
-                  f"[a]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-                  f"crop={out_w}:{out_h},boxblur=luma_radius=30:luma_power=2,eq=brightness=-0.08[bg];"
-                  f"[b]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fg];"
-                  f"[bg][fg]overlay=(W-w)/2:(H-h)/2{vf_tail}[v]")
-            cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}",
-                   "-i", video, "-filter_complex", fc, "-map", "[v]",
-                   *(["-map", "0:a:0?"] if info.has_audio else []), *enc, "out.mp4"]
+            inputs = ["-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", video]
+            audio = ["-map", "0:a:0?"] if info.has_audio else []
+            base = (f"[0:v]split=2[a][b];"
+                    f"[a]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+                    f"crop={out_w}:{out_h},boxblur=luma_radius=30:luma_power=2,eq=brightness=-0.08[bg];"
+                    f"[b]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2[base]")
+            next_input = 1
+
+        chain = [base]
+        last = "base"
+        if head_png:
+            inputs += ["-i", str(head_png)]
+            hs = min(opts.headline_seconds, dur)
+            y = f"{opts.headline_position}*H-h/2"
+            chain.append(f"[{last}][{next_input}:v]overlay=(W-w)/2:{y}:"
+                         f"enable='between(t,0,{hs:.2f})'[hd]")
+            last = "hd"
+        chain.append(f"[{last}]{','.join(post) if post else 'null'}[v]")
+        cmd = ["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", ";".join(chain),
+               "-map", "[v]", *audio, *enc, "-t", f"{dur:.3f}", "out.mp4"]
 
         proc = subprocess.run(cmd, cwd=td, capture_output=True, text=True)
         if proc.returncode != 0:

@@ -99,3 +99,13 @@ def test_llm_path_with_mocked_model(monkeypatch):
     clips = find_highlights(t, num_clips=3, min_len=5, max_len=15, provider="anthropic")
     assert len(clips) == 1
     assert clips[0].title == "The biggest mistake" and clips[0].score == 91
+
+
+def test_headline_png(tmp_path):
+    from fluxclip.headline import render_headline_png
+
+    p = render_headline_png("A dog-art app became a $300K-a-month business", 1080, tmp_path / "h.png")
+    from PIL import Image
+
+    im = Image.open(p)
+    assert im.mode == "RGBA" and 200 < im.width < 1080

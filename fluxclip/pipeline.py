@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from .gallery import write_gallery
 from .highlights import Clip, find_highlights
 from .render import RenderOptions, make_thumbnail, render_clip
 from .transcribe import Transcript, transcribe
@@ -60,7 +61,8 @@ def process_video(
     for i, c in enumerate(clips, 1):
         name = f"{i:02d}_{slugify(c.title)}.mp4"
         say(f"Rendering clip {i}/{len(clips)}: {c.title} ({c.duration:.0f}s, score {c.score:.0f})")
-        meta = render_clip(video, c.start, c.end, out / name, transcript, cfg.render, title=c.title)
+        meta = render_clip(video, c.start, c.end, out / name, transcript, cfg.render,
+                           title=c.title, headline=c.headline)
         if cfg.thumbnails:
             meta["thumbnail"] = str(make_thumbnail(meta["path"], at=min(1.0, c.duration / 2)))
         meta.update({k: v for k, v in c.to_dict().items() if k not in meta})
@@ -76,5 +78,6 @@ def process_video(
         "clips": results,
     }
     (out / "clips.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
-    say(f"Done – {len(results)} clips in {out}")
+    summary["gallery"] = str(write_gallery(summary, out))
+    say(f"Done – {len(results)} clips in {out}  (open index.html to review)")
     return summary
