@@ -164,7 +164,12 @@ export default function ProjectPage() {
           <MomentSearch projectId={p.id} onCreated={refreshAfterChange} />
 
           <div className="mb-5 mt-6 flex flex-wrap items-center gap-3">
-            <p className="mr-auto text-sm text-muted">{p.message}</p>
+            <p className="mr-auto text-sm text-muted">
+              {(() => {
+                const n = p.clips?.filter((c) => c.status === "ready").length ?? 0;
+                return `${n} clip${n === 1 ? "" : "s"} ready`;
+              })()}
+            </p>
             <select className="input w-auto py-2" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort clips">
               <option value="score">Sort: virality score</option>
               <option value="time">Sort: timeline</option>
