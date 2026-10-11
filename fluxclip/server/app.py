@@ -126,6 +126,9 @@ def _clip_out(c: dict) -> dict:
 def _project_out(p: dict, with_clips: bool = False) -> dict:
     p = dict(p)
     p["thumbnail_url"] = _file_url(p["id"], p.get("thumbnail"))
+    sp = p.get("source_path")
+    p["source_url"] = _file_url(p["id"], Path(sp).name) if sp and Path(sp).parent.name == p["id"] else None
+    p.pop("source_path", None)  # don't leak server paths to the browser
     p["queue_position"] = jobs.queue_position(p["id"])
     if with_clips:
         p["clips"] = [_clip_out(c) for c in db.list_clips(p["id"])]
