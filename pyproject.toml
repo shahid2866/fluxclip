@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fluxclip"
+version = "0.1.0"
+description = "Open-source AI video clipper: turn long videos into viral vertical shorts with animated captions. Works with Claude, OpenAI, Ollama or fully offline."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Shahid Anwar" }]
+keywords = ["video", "shorts", "reels", "tiktok", "clips", "whisper", "captions", "mcp", "claude", "opusclip"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Multimedia :: Video",
+  "Environment :: Console",
+]
+dependencies = [
+  "faster-whisper>=1.0",
+  "opencv-python-headless>=4.8,<5",
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+download = ["yt-dlp"]
+all = ["mcp>=1.2", "yt-dlp"]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+fluxclip = "fluxclip.cli:main"
+fluxclip-mcp = "fluxclip.mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/OWNER/fluxclip"
+
+[tool.hatch.build.targets.wheel]
+packages = ["fluxclip"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E702", "B008", "E501"]

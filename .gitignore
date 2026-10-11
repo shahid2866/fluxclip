@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+clips/
+fluxclip_output/
+*.mp4
+*.mov
+*.mkv
+*.wav

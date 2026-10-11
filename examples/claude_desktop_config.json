@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "fluxclip": {
+      "command": "fluxclip-mcp",
+      "env": {
+        "FLUXCLIP_DEVICE": "auto"
+      }
+    }
+  }
+}
