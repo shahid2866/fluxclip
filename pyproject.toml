@@ -26,8 +26,9 @@ dependencies = [
 [project.optional-dependencies]
 mcp = ["mcp>=1.2"]
 download = ["yt-dlp"]
-all = ["mcp>=1.2", "yt-dlp"]
-dev = ["pytest", "ruff"]
+studio = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9", "yt-dlp"]
+all = ["mcp>=1.2", "yt-dlp", "fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9"]
+dev = ["pytest", "ruff", "httpx"]
 
 [project.scripts]
 fluxclip = "fluxclip.cli:main"

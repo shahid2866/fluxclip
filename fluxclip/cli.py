@@ -90,11 +90,23 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("mcp", help="Start the MCP server (for Claude Desktop, Claude Code, Cursor…)")
 
+    p = sub.add_parser("studio", help="Start the FluxClip Studio API (used by the web app)")
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, default=8000)
+
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(message)s", stream=sys.stderr)
 
     try:
+        if a.cmd == "studio":
+            try:
+                from .server.app import main as studio_main
+            except ImportError as e:
+                raise FluxClipError("Studio needs extra packages: pip install 'fluxclip[studio]'") from e
+            studio_main(a.host, a.port)
+            return 0
+
         if a.cmd == "mcp":
             from .mcp_server import main as mcp_main
             mcp_main()

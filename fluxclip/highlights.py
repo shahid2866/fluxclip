@@ -337,6 +337,7 @@ def find_highlights(
         snapped = [c for c in (snap_clip(c, t, min_len, max_len) for c in raw) if c]
     else:
         snapped = raw  # already on exact sentence boundaries
+    snapped = [c for c in snapped if c.end - c.start >= 1.0]  # guard against out-of-range picks
     clips = dedupe(snapped)[:num_clips]
     for c in clips:
         if not c.title:

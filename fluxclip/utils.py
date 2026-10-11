@@ -82,7 +82,7 @@ def is_url(s: str) -> bool:
     return bool(re.match(r"^https?://", s.strip(), re.I))
 
 
-def resolve_input(source: str, workdir: str | Path | None = None) -> Path:
+def resolve_input(source: str, workdir: str | Path | None = None, info_out: dict | None = None) -> Path:
     """Return a local video path, downloading URLs (YouTube, etc.) with yt-dlp."""
     if not is_url(source):
         p = Path(source).expanduser().resolve()
@@ -105,6 +105,8 @@ def resolve_input(source: str, workdir: str | Path | None = None) -> Path:
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(source, download=True)
         path = Path(ydl.prepare_filename(info)).with_suffix(".mp4")
+    if info_out is not None:
+        info_out.update({k: info.get(k) for k in ("title", "duration", "uploader", "id")})
     if not path.exists():  # format without merge
         matches = sorted(target.glob(f"{info['id']}.*"))
         if not matches:

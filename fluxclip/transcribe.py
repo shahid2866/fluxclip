@@ -123,7 +123,8 @@ def _fill_missing_words(seg: Segment) -> None:
     ]
 
 
-def _transcribe_local(audio: Path, model_size: str, language: str | None) -> tuple[list[Segment], str]:
+def _transcribe_local(audio: Path, model_size: str, language: str | None,
+                      on_progress=None) -> tuple[list[Segment], str]:
     try:
         from faster_whisper import WhisperModel  # type: ignore
     except ImportError as e:
@@ -143,6 +144,8 @@ def _transcribe_local(audio: Path, model_size: str, language: str | None) -> tup
     for s in segs_iter:
         words = [Word(float(w.start), float(w.end), w.word) for w in (s.words or [])]
         segments.append(Segment(float(s.start), float(s.end), s.text, words))
+        if on_progress and info.duration:
+            on_progress(min(1.0, float(s.end) / info.duration))
     return segments, info.language
 
 
@@ -210,6 +213,7 @@ def transcribe(
     language: str | None = None,
     backend: str = "local",
     use_cache: bool = True,
+    on_progress=None,
 ) -> Transcript:
     """Transcribe a video file. Results are cached per file + model."""
     from .utils import probe
@@ -230,7 +234,7 @@ def transcribe(
         if backend == "openai":
             segments, lang = _transcribe_openai(wav, language)
         elif backend == "local":
-            segments, lang = _transcribe_local(wav, model_size, language)
+            segments, lang = _transcribe_local(wav, model_size, language, on_progress)
         else:
             raise FluxClipError(f"Unknown transcriber backend '{backend}' (use local|openai)")
     for s in segments:
