@@ -103,6 +103,38 @@ fluxclip run "https://www.youtube.com/watch?v=VIDEO_ID" -n 10 --min 20 --max 60 
 python scripts/compare_clips.py compare/clips.json "25:14-25:44" "26:54-27:19" "25:51-26:30"
 ```
 
+## FluxClip Studio (web app)
+
+An OpusClip-style web interface on top of the engine: paste a link or upload a video, watch live progress, then review, edit and download your clips.
+
+- **Home:** link box, upload or drag-and-drop, clip settings (count, length, caption style, aspect, framing, headline, timeframe, prompt)
+- **Projects:** every video you've processed, with status and clip counts
+- **Clips page:** grid or list view grouped by topic, virality score with a **Hook / Flow / Value / Trend** breakdown, timestamps, transcript, why it was picked, download MP4/SRT, copy title or caption
+- **Clip editor:** trim with ±0.2 s / ±1 s nudges or by clicking transcript sentences, edit headline/title/caption/hashtags, change caption style, aspect and framing, then re-render
+- **Find keywords or moments:** search the transcript and turn any hit into a clip in one click
+- **Settings:** choose Claude, OpenAI(-compatible), Ollama or offline; keys are stored only in your local database
+
+### Run it with Docker (easiest)
+
+```bash
+git clone https://github.com/OWNER/fluxclip && cd fluxclip
+docker compose up -d --build
+# open http://localhost:3000  → Settings → paste your API key
+```
+
+Data (videos, clips, database, Whisper models) lives in the `fluxclip-data` volume. For an NVIDIA GPU, uncomment the `deploy` block in `docker-compose.yml`. On **Coolify**, create a new resource from this repo using the Docker Compose build pack and expose the `web` service.
+
+### Run it without Docker
+
+```bash
+pip install -e ".[all]"
+fluxclip studio                      # API on http://localhost:8000  (docs at /docs)
+
+cd web && npm install && npm run dev # web app on http://localhost:3000
+```
+
+If the API runs elsewhere, set `FLUXCLIP_API_URL` before starting/building the web app.
+
 ## Use with Claude (MCP)
 
 FluxClip ships an MCP server, so Claude itself becomes your video editor — **no extra API key needed**: Claude reads the transcript, chooses the moments, and calls the renderer.
@@ -179,10 +211,12 @@ video ─► ffmpeg audio ─► Whisper (word timestamps) ─► LLM / heuristi
 | `FLUXCLIP_DEVICE` | Whisper device: `auto`, `cpu`, `cuda` |
 | `FLUXCLIP_CACHE` | Cache folder (transcripts, models, downloads) |
 | `FLUXCLIP_FACE_DETECTOR=haar` | Skip the YuNet download |
+| `FLUXCLIP_DATA` | Studio data folder (default `~/.fluxclip-studio`) |
+| `FLUXCLIP_API_URL` | Where the web app finds the API (default `http://localhost:8000`) |
 
 ## Roadmap
 
-- [ ] Web UI (Next.js) for upload, preview and caption editing
+- [x] Web UI (FluxClip Studio)
 - [ ] Split-screen layout for two speakers
 - [ ] B-roll and emoji suggestions
 - [ ] Filler-word and silence removal

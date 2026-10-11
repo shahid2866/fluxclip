@@ -207,14 +207,22 @@ def _run_project(pid: str) -> None:
         if not src or not Path(src).exists():
             info: dict = {}
             _set(pid, message="Downloading video…")
-            path = resolve_input(p["source"], workdir=pdir / "download", info_out=info)
+            try:
+                path = resolve_input(p["source"], workdir=pdir / "download", info_out=info)
+            except Exception as e:
+                reason = str(e).strip().splitlines()[-1] if str(e).strip() else type(e).__name__
+                raise FluxClipError(f"Couldn't download this link. {reason[:300]}") from e
             dest = pdir / f"source{path.suffix}"
             shutil.move(str(path), dest)
             shutil.rmtree(pdir / "download", ignore_errors=True)
             src = str(dest)
             db.update_project(pid, source_path=src, title=p["title"] or info.get("title", "") or dest.stem)
         _check(pid)
-        vi = probe(src)
+        try:
+            vi = probe(src)
+        except FluxClipError as e:
+            raise FluxClipError("Couldn't read this video file — it may be corrupted or in an "
+                                "unsupported format.") from e
         thumb = pdir / "thumbnail.jpg"
         try:
             run(["ffmpeg", "-y", "-v", "error", "-ss", f"{min(vi.duration * 0.1, 30):.2f}", "-i", src,

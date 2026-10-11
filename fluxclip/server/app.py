@@ -83,6 +83,7 @@ class ClipPatch(BaseModel):
 class NewClip(BaseModel):
     start: float
     end: float
+    snap: bool = True  # align to sentence boundaries
     title: str | None = None
     headline: str | None = None
 
@@ -332,11 +333,21 @@ def create_clip(pid: str, body: NewClip) -> dict:
     if body.end - body.start < 1:
         raise HTTPException(422, "Clip must be at least 1 second long")
     t = _transcript(pid)
-    text = t.text_between(body.start, body.end)
+    start, end = body.start, body.end
+    if body.snap:
+        # Start on the sentence containing `start`, end at the end of the sentence containing `end`.
+        sents = t.sentences()
+        if sents:
+            first = max((s for s in sents if s.start <= start + 0.3), key=lambda s: s.start, default=sents[0])
+            last = min((s for s in sents if s.end >= end - 0.3), key=lambda s: s.end, default=sents[-1])
+            start, end = max(0.0, first.start - 0.05), min(t.duration or last.end + 0.3, last.end + 0.3)
+    text = t.text_between(start, end)
+    first_sentence = next((s.text for s in t.sentences() if s.end > start), text)
     title = body.title or (text[:57] + "…" if len(text) > 60 else text) or "Custom clip"
+    headline = body.headline or " ".join(str(first_sentence).split()[:9])
     idx = max([c["idx"] for c in db.list_clips(pid)] or [0]) + 1
-    c = db.add_clip(pid, idx, start=body.start, end=body.end, title=title,
-                    headline=body.headline or title, topic="Custom clips", transcript=text,
+    c = db.add_clip(pid, idx, start=round(start, 2), end=round(end, 2), title=title,
+                    headline=headline, topic="Custom clips", transcript=text,
                     render={}, status="pending")
     jobs.enqueue_render(c["id"])
     return _clip_out(db.get_clip(c["id"]))

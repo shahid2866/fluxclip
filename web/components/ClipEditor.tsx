@@ -136,7 +136,14 @@ export default function ClipEditor({
             <div className="grid gap-4 sm:grid-cols-[1fr_180px]">
               <div className="overflow-hidden rounded-xl bg-black">
                 {project.source_url ? (
-                  <video ref={videoRef} src={project.source_url} preload="metadata" className="aspect-video w-full" controls />
+                  <video
+                    ref={videoRef}
+                    src={project.source_url}
+                    preload="metadata"
+                    className="aspect-video w-full"
+                    controls
+                    onLoadedMetadata={(e) => (e.currentTarget.currentTime = start)}
+                  />
                 ) : (
                   <div className="grid aspect-video place-items-center text-sm text-muted">Source preview unavailable</div>
                 )}

@@ -1,0 +1,31 @@
+# FluxClip Studio — one command:  docker compose up -d   →  http://localhost:3000
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Optional — you can also paste keys in the web app's Settings page.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OLLAMA_HOST=${OLLAMA_HOST:-}
+    volumes:
+      - fluxclip-data:/data
+    # NVIDIA GPU (much faster transcription): uncomment
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+
+  web:
+    build:
+      context: ./web
+      args:
+        FLUXCLIP_API_URL: http://api:8000
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${FLUXCLIP_PORT:-3000}:3000"
+
+volumes:
+  fluxclip-data:

@@ -16,7 +16,7 @@ export default function Sidebar() {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-line bg-panel px-3 py-5 md:flex">
+      <aside className="sticky top-0 hidden h-screen self-start w-60 shrink-0 flex-col border-r border-line bg-panel px-3 py-5 md:flex">
         <Link href="/" className="mb-8 flex items-center gap-2.5 px-2">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-accent-ink">
             <Clapperboard size={18} strokeWidth={2.5} />
