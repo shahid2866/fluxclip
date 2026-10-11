@@ -49,6 +49,33 @@ class Transcript:
     def words_between(self, start: float, end: float) -> list[Word]:
         return [w for w in self.words if w.end > start and w.start < end]
 
+    def sentences(self, max_words: int = 45, pause: float = 1.2) -> list[Segment]:
+        """Re-split the transcript into sentences using word punctuation and pauses.
+
+        Whisper segments often break mid-sentence; clips must start and end on
+        complete thoughts, so selection works on these sentence units instead.
+        """
+        out: list[Segment] = []
+        cur: list[Word] = []
+
+        def flush():
+            if cur:
+                text = " ".join(w.word.strip() for w in cur).strip()
+                out.append(Segment(cur[0].start, cur[-1].end, text, list(cur)))
+                cur.clear()
+
+        words = self.words
+        for i, w in enumerate(words):
+            if cur and (w.start - cur[-1].end > pause or len(cur) >= max_words):
+                flush()
+            cur.append(w)
+            tok = w.word.strip()
+            nxt = words[i + 1].word.strip() if i + 1 < len(words) else ""
+            if tok.endswith((".", "?", "!", "…")) and not tok.endswith("..") and (not nxt or not nxt[0].islower()):
+                flush()
+        flush()
+        return out
+
     def to_prompt_text(self) -> str:
         """Compact, timestamped transcript for LLMs."""
         return "\n".join(
@@ -106,7 +133,11 @@ def _transcribe_local(audio: Path, model_size: str, language: str | None) -> tup
     log.info("Loading Whisper model '%s' (first run downloads it)…", model_size)
     model = WhisperModel(model_size, device=device, compute_type=compute)
     segs_iter, info = model.transcribe(
-        str(audio), language=language, word_timestamps=True, vad_filter=True, beam_size=5
+        str(audio), language=language, word_timestamps=True, vad_filter=True, beam_size=5,
+        # Avoids repetition loops on long podcasts; the prompt nudges proper punctuation,
+        # which sentence splitting (and therefore clip boundaries) depends on.
+        condition_on_previous_text=False,
+        initial_prompt="Hello, and welcome back to the show. Today, we're talking about it.",
     )
     segments = []
     for s in segs_iter:
@@ -159,9 +190,23 @@ def _transcribe_openai(audio: Path, language: str | None) -> tuple[list[Segment]
     return segments, data.get("language", language or "en")
 
 
+QUALITY_PRESETS = {"auto": "", "fast": "base", "balanced": "small", "best": "large-v3-turbo"}
+
+
+def default_model() -> str:
+    """large-v3-turbo on a GPU (fast + accurate), small on CPU."""
+    try:
+        import ctranslate2  # type: ignore
+        if ctranslate2.get_cuda_device_count() > 0:
+            return "large-v3-turbo"
+    except Exception:
+        pass
+    return "small"
+
+
 def transcribe(
     video: str | Path,
-    model_size: str = "small",
+    model_size: str | None = None,
     language: str | None = None,
     backend: str = "local",
     use_cache: bool = True,
@@ -170,6 +215,7 @@ def transcribe(
     from .utils import probe
 
     video = Path(video)
+    model_size = QUALITY_PRESETS.get(model_size or "", model_size) or default_model()
     cache = CACHE_DIR / "transcripts" / f"{file_fingerprint(video)}-{backend}-{model_size}-{language or 'auto'}.json"
     if use_cache and cache.exists():
         log.info("Using cached transcript %s", cache)

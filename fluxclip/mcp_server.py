@@ -45,7 +45,7 @@ def _opts(aspect: str, layout: str, caption_style: str, headline: bool,
 
 
 @mcp.tool()
-def get_transcript(source: str, whisper_model: str = "small", language: str | None = None) -> dict[str, Any]:
+def get_transcript(source: str, whisper_model: str = "auto", language: str | None = None) -> dict[str, Any]:
     """Transcribe a local video file or URL. Returns a timestamped transcript
     ("[start-end] text", seconds) you can use to choose clip boundaries.
     Results are cached, so calling render tools afterwards is fast."""
@@ -62,7 +62,7 @@ def get_transcript(source: str, whisper_model: str = "small", language: str | No
 @mcp.tool()
 def find_clips(source: str, num_clips: int = 5, min_seconds: float = 20, max_seconds: float = 60,
                provider: str = "heuristic", instructions: str | None = None,
-               whisper_model: str = "small") -> list[dict[str, Any]]:
+               whisper_model: str = "auto") -> list[dict[str, Any]]:
     """Suggest clip candidates using FluxClip's built-in picker.
     provider: heuristic (offline) | anthropic | openai | ollama | auto."""
     video = resolve_input(source)
@@ -74,7 +74,7 @@ def find_clips(source: str, num_clips: int = 5, min_seconds: float = 20, max_sec
 @mcp.tool()
 def render_clips(source: str, clips: list[dict[str, Any]], output_dir: str = "fluxclip_output",
                  aspect: str = "9:16", layout: str = "auto", caption_style: str = "opus",
-                 headline: bool = True, whisper_model: str = "small") -> list[dict[str, Any]]:
+                 headline: bool = True, whisper_model: str = "auto") -> list[dict[str, Any]]:
     """Render several clips. Each item in `clips` needs "start" and "end" (seconds)
     and may include "title" (Title Case) and "headline" (4-9 word on-screen hook shown
     for the first 5 s). layout: auto | crop (follow speaker) | fit (blurred bg).
@@ -119,7 +119,7 @@ def render_clip(source: str, start: float, end: float, title: str | None = None,
 def process_video(source: str, num_clips: int = 5, min_seconds: float = 20, max_seconds: float = 60,
                   provider: str = "auto", instructions: str | None = None,
                   output_dir: str = "fluxclip_output", aspect: str = "9:16", layout: str = "auto",
-                  caption_style: str = "opus", whisper_model: str = "small") -> dict[str, Any]:
+                  caption_style: str = "opus", whisper_model: str = "auto") -> dict[str, Any]:
     """One-shot pipeline: transcribe, pick the best clips, render them with captions."""
     cfg = PipelineConfig(num_clips=num_clips, min_len=min_seconds, max_len=max_seconds,
                          provider=provider, instructions=instructions, whisper_model=whisper_model,

@@ -22,7 +22,7 @@ class PipelineConfig:
     provider: str = "auto"
     model: str | None = None
     instructions: str | None = None
-    whisper_model: str = "small"
+    whisper_model: str = "auto"
     transcriber: str = "local"
     language: str | None = None
     render: RenderOptions = field(default_factory=RenderOptions)

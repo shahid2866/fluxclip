@@ -22,8 +22,10 @@ fluxclip run "https://youtube.com/watch?v=..." -n 5
 | | |
 |---|---|
 | 🎙️ **Transcription** | Local [faster-whisper](https://github.com/SYSTRAN/faster-whisper) with word-level timestamps (free, offline, 90+ languages) or the OpenAI Whisper API |
+| ✂️ **Sentence-accurate cuts** | The transcript is re-split into real sentences, and the AI picks whole-sentence ranges, so clips never start mid-thought or on filler like "so" or "and" |
+| 🏆 **Two-pass AI ranking** | Pass 1 over-generates candidates; pass 2 scores each on **Hook / Flow / Value / Trend** (0–25 each, OpusClip-style virality score), trims weak openings, and writes the title + headline |
 | 🧠 **AI clip picker** | Finds hooks, stories and payoffs. Works with **Claude**, **OpenAI** (or any OpenAI-compatible API: Groq, OpenRouter, LM Studio), **Ollama** (local), or an offline heuristic — no key required |
-| 🎯 **Speaker tracking** | Face detection + a "virtual camera" with dead-zone smoothing and hard cuts when the speaker changes |
+| 🎯 **Active-speaker tracking** | In multi-person shots the camera follows whoever is talking (mouth-motion analysis), with smooth dead-zone framing and clean cuts (each shot lasts ≥1 s) |
 | 🌫️ **Blurred-background layout** | Automatic fallback for screen recordings / slides / no faces |
 | 💬 **Animated captions** | Uppercase word-by-word captions with the active word highlighted. Styles: `opus` (default, green highlight), `bold`, `neon`, `fire`, `minimal`, `boxed` |
 | 📰 **Auto headline** | A white rounded headline box with a scroll-stopping hook for the first 5 seconds of every clip |
@@ -74,7 +76,7 @@ fluxclip run video.mp4 \
   --captions neon --words 2 --no-headline \    # caption look
   --layout crop \                              # auto | crop | fit
   --aspect 9:16 \                              # 9:16 | 1:1 | 4:5 | 16:9
-  --whisper-model medium --language hi \       # better accuracy / force language
+  --quality best --language hi \               # best = large-v3-turbo (most accurate captions)
   --provider anthropic --model claude-sonnet-4-5
 ```
 
@@ -85,6 +87,20 @@ fluxclip transcribe video.mp4 --text            # readable transcript
 fluxclip highlights video.mp4 -n 5              # JSON clip suggestions, no rendering
 fluxclip render video.mp4 --start 62.4 --end 101 --title "My hook"   # render exact timestamps + headline
 fluxclip mcp                                    # start MCP server
+```
+
+## Accuracy tips
+
+- **Captions:** `--quality best` uses Whisper `large-v3-turbo` (default on a GPU). On CPU the default is `small`; `best` is slower but much more accurate, especially for accents and names.
+- **Clip choice:** an LLM gives far better picks than the offline heuristic. Use Claude (`ANTHROPIC_API_KEY`) or a capable OpenAI model. Small local Ollama models work but pick weaker moments.
+- **Steer it:** `--prompt "stories with numbers, skip the intro"` works like OpusClip's clip prompts.
+
+### Compare with OpusClip on the same video
+
+```bash
+fluxclip run "https://www.youtube.com/watch?v=VIDEO_ID" -n 10 --min 20 --max 60 --quality best -o compare
+# paste the timestamps OpusClip shows for its clips, e.g. [25:14-25:44]
+python scripts/compare_clips.py compare/clips.json "25:14-25:44" "26:54-27:19" "25:51-26:30"
 ```
 
 ## Use with Claude (MCP)
@@ -149,8 +165,8 @@ video ─► ffmpeg audio ─► Whisper (word timestamps) ─► LLM / heuristi
       ─► ASS karaoke captions ─► ffmpeg (H.264) ─► clips + metadata
 ```
 
-- **Reframing:** faces are detected every 0.2 s (YuNet if it can be downloaded, otherwise OpenCV Haar cascades). A median filter removes noise; a virtual camera with a dead-zone eases on small moves and hard-cuts (with look-ahead) when the speaker changes. If faces appear in fewer than 25% of samples, the clip uses the blurred-background layout.
-- **Clip selection:** long transcripts are split into ~25-minute windows so any model's context is enough. Results are deduplicated and snapped to sentence boundaries.
+- **Reframing:** faces are detected every 0.2 s (YuNet if it can be downloaded, otherwise OpenCV Haar cascades). With several faces, the one whose mouth region moves most (minus head motion) is the active speaker. A median filter removes noise; a virtual camera with a dead-zone eases on small moves and hard-cuts (with look-ahead) when the speaker changes. If faces appear in fewer than 25% of samples, the clip uses the blurred-background layout.
+- **Clip selection:** the transcript is re-split into sentences; long videos are processed in ~25-minute windows. The AI proposes sentence ranges, then a second pass scores (Hook/Flow/Value/Trend), tightens and titles them.
 
 ## Configuration
 

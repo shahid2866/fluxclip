@@ -88,17 +88,35 @@ def test_transcript_roundtrip(tmp_path):
     assert len(t2.words) == len(t.words)
 
 
-def test_llm_path_with_mocked_model(monkeypatch):
-    from fluxclip import llm
+def test_llm_two_stage_selection(monkeypatch):
+    from fluxclip import highlights, llm
 
-    reply = '```json\n{"clips": [{"start": 3.0, "end": 12.5, "title": "The biggest mistake", ' \
-            '"hook": "Here is the biggest mistake", "score": 91, "hashtags": ["#creator"], ' \
-            '"caption": "Stop doing this"}]}\n```'
-    monkeypatch.setattr(llm, "complete", lambda *a, **k: reply)
+    def fake(system, user, **k):
+        if system == highlights.SELECT_PROMPT:
+            assert "S1 [" in user  # sentence-numbered transcript
+            return '{"clips": [{"start_id": 1, "end_id": 5, "topic": "Creator growth"}, ' \
+                   '{"start_id": 1, "end_id": 4, "topic": "dup"}]}'
+        return ('```json\n{"ranked": [{"id": 0, "start_id": 1, "end_id": 4, "hook": 23, "flow": 20, '
+                '"value": 22, "trend": 17, "title": "The Biggest Mistake Creators Make", '
+                '"headline": "Most creators never study this", "hashtags": ["#creator"]}]}\n```')
+
+    monkeypatch.setattr(llm, "complete", fake)
     t = make_transcript()
+    sents = t.sentences()
     clips = find_highlights(t, num_clips=3, min_len=5, max_len=15, provider="anthropic")
     assert len(clips) == 1
-    assert clips[0].title == "The biggest mistake" and clips[0].score == 91
+    c = clips[0]
+    assert c.score == 82 and c.headline == "Most creators never study this"
+    # Exact sentence boundaries: starts at sentence 1, ends at the end of sentence 4.
+    assert abs(c.start - (sents[1].start - 0.05)) < 0.01
+    assert abs(c.end - (sents[4].end + 0.3)) < 0.01
+
+
+def test_sentences_split_on_punctuation():
+    t = make_transcript()
+    sents = t.sentences()
+    assert len(sents) == 10
+    assert sents[3].text.endswith("?")
 
 
 def test_headline_png(tmp_path):

@@ -12,33 +12,46 @@ from dataclasses import asdict, dataclass, field
 
 from . import llm
 from .transcribe import Transcript
-from .utils import log
+from .utils import fmt_ts, log
 
-SYSTEM_PROMPT = """You are a world-class short-form video editor (TikTok, Reels, YouTube Shorts).
-Given a timestamped transcript of a long video, you pick the moments most likely to go viral as
-stand-alone vertical clips.
+SELECT_PROMPT = """You are a senior short-form video editor (TikTok, Reels, YouTube Shorts) who
+finds the moments in long videos that will go viral as stand-alone vertical clips.
+
+The transcript is split into numbered sentences: "S12 [25:14] text".
+Pick clips as RANGES OF WHOLE SENTENCES (start_id..end_id, inclusive).
 
 A great clip:
-- Opens with a strong HOOK in the first 3 seconds (bold claim, question, surprising fact, conflict, emotion).
-- Is self-contained: a viewer with zero context understands it.
-- Has a payoff: an insight, punchline, story resolution, or actionable tip.
-- Starts at the beginning of a sentence and ends at the end of a thought.
-- Avoids intros, outros, sponsor reads, and "like and subscribe".
+- Starts on a strong first sentence: bold claim, question, surprising number, conflict, emotion.
+  Never start on filler ("so", "yeah", "and then", "like I said") or mid-story.
+- Is self-contained: a stranger with zero context understands it (no unexplained "he", "that", "this").
+- Delivers a payoff: insight, punchline, story resolution, contrarian take, or actionable tip.
+- Ends right after the payoff, on a complete thought.
+- Is not an intro, outro, sponsor read, or "like and subscribe".
+- Stories with specific numbers, names and outcomes beat generic advice.
 
-Respond with ONLY valid JSON, no prose, in this exact shape:
-{"summary": "one sentence describing what this part of the video covers",
-"clips": [{"start": 12.3, "end": 48.9,
-"title": "Title Case YouTube-Shorts title, specific and curiosity-driven (max 60 chars)",
-"headline": "on-screen hook shown for the first 5 seconds, 4-9 words, sentence case",
-"topic": "2-4 word theme used to group related clips",
-"hook": "the opening line that grabs attention", "reason": "why this will perform",
-"score": 87, "hashtags": ["#tag1", "#tag2", "#tag3"],
-"caption": "a 1-2 sentence social media caption for posting"}]}
+Respond with ONLY JSON:
+{"clips": [{"start_id": 12, "end_id": 19, "topic": "2-4 word theme", "why": "one line"}]}"""
 
-Good titles use concrete numbers, names and outcomes, e.g. "AI Dog Portrait Business Makes $300K a Month".
-Good headlines read like a bold claim, e.g. "A dog-art app became a $300K-a-month business".
-"score" is 0-100 virality. Use the transcript timestamps (seconds) for start/end."""
+RANK_PROMPT = """You are the head editor reviewing candidate clips for TikTok/Reels/Shorts.
+Score each candidate honestly (most candidates are NOT great):
+- hook (0-25): do the first 3 seconds stop the scroll?
+- flow (0-25): self-contained, coherent, no missing context, clean ending?
+- value (0-25): insight, emotion, story payoff, or entertainment?
+- trend (0-25): relevance to what people currently care about and share?
 
+You may tighten a clip: set "start_id"/"end_id" to a narrower sentence range inside the candidate
+if it removes a weak opening or a trailing tangent (it must stay within the length limits).
+
+For each candidate also write:
+- "title": Title Case, specific, curiosity-driven, max 60 chars (e.g. "AI Dog Portrait Business Makes $300K a Month")
+- "headline": the on-screen hook for the first 5 s, 4-9 words, sentence case, a bold claim
+  (e.g. "A dog-art app became a $300K-a-month business")
+- "caption": 1-2 sentence post caption; "hashtags": 3-5 tags; "topic": 2-4 word theme
+
+Respond with ONLY JSON:
+{"ranked": [{"id": 0, "start_id": 12, "end_id": 18, "hook": 22, "flow": 20, "value": 21, "trend": 18,
+"title": "...", "headline": "...", "caption": "...", "hashtags": ["#a"], "topic": "...",
+"reason": "why it will perform"}]}"""
 
 @dataclass
 class Clip:
@@ -52,6 +65,7 @@ class Clip:
     score: float = 0.0
     hashtags: list[str] = field(default_factory=list)
     caption: str = ""
+    scores: dict = field(default_factory=dict)  # hook / flow / value / trend
 
     @property
     def duration(self) -> float:
@@ -67,8 +81,8 @@ class Clip:
 # Boundary handling
 # --------------------------------------------------------------------------- #
 def snap_clip(clip: Clip, t: Transcript, min_len: float, max_len: float) -> Clip | None:
-    """Snap start/end to segment boundaries and enforce duration limits."""
-    segs = t.segments
+    """Snap start/end to sentence boundaries and enforce duration limits."""
+    segs = t.sentences()
     if not segs:
         return None
     starts = [s.start for s in segs]
@@ -116,50 +130,120 @@ def dedupe(clips: list[Clip], max_overlap: float = 0.3) -> list[Clip]:
 
 
 # --------------------------------------------------------------------------- #
-# LLM picker
+# LLM picker: sentence-range selection, then a ranking/tightening pass
 # --------------------------------------------------------------------------- #
-def _chunks(t: Transcript, window: float = 1500.0, overlap: float = 90.0):
-    """Split long transcripts into ~25-minute windows so they fit any context."""
-    if not t.segments:
+def _sentence_windows(sents, window: float = 1500.0, overlap: float = 120.0):
+    """Yield (offset, sentences) windows of ~25 minutes so any model's context fits."""
+    if not sents:
         return
-    start = t.segments[0].start
-    last = t.segments[-1].end
+    start = sents[0].start
+    last = sents[-1].end
     while start < last:
-        end = start + window
-        segs = [s for s in t.segments if s.start >= start and s.start < end]
-        if segs:
-            yield Transcript(t.language, t.duration, segs)
-        start = end - overlap
+        idx = [i for i, s in enumerate(sents) if start <= s.start < start + window]
+        if idx:
+            yield idx
+        start += window - overlap
+
+
+def _fit_range(sents, si: int, ei: int, min_len: float, max_len: float) -> tuple[int, int] | None:
+    si, ei = max(0, si), min(len(sents) - 1, max(si, ei))
+    while ei > si and sents[ei].end - sents[si].start > max_len:
+        ei -= 1
+    while sents[ei].end - sents[si].start < min_len and ei + 1 < len(sents):
+        if sents[ei + 1].end - sents[si].start > max_len:
+            break
+        ei += 1
+    if sents[ei].end - sents[si].start < min_len * 0.6:
+        return None
+    return si, ei
+
+
+def _ids(it: dict, a: str, b: str) -> tuple[int, int] | None:
+    try:
+        return int(it[a]), int(it[b])
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _llm_clips(t: Transcript, n: int, min_len: float, max_len: float,
                provider: str, model: str | None, instructions: str | None) -> list[Clip]:
-    out: list[Clip] = []
-    for chunk in _chunks(t):
-        user = (
-            f"Find the {n} best clips, each between {min_len:.0f} and {max_len:.0f} seconds long.\n"
-            + (f"Extra instructions from the creator: {instructions}\n" if instructions else "")
-            + f"Transcript language: {t.language}. Write titles/captions in that language.\n\n"
-            + "TRANSCRIPT:\n" + chunk.to_prompt_text()
-        )
-        reply = llm.complete(SYSTEM_PROMPT, user, provider=provider, model=model)
-        data = llm.extract_json(reply)
+    sents = t.sentences()
+    extra = f"Creator's instructions: {instructions}\n" if instructions else ""
+
+    # Stage 1 – candidates (over-generate, then rank).
+    want = max(n * 2, 6)
+    cands: list[tuple[int, int, str]] = []
+    for idx in _sentence_windows(sents):
+        lines = "\n".join(f"S{i} [{fmt_ts(sents[i].start)}] {sents[i].text}" for i in idx)
+        user = (f"Find up to {want} clip candidates, each {min_len:.0f}-{max_len:.0f} seconds long.\n"
+                f"{extra}TRANSCRIPT:\n{lines}")
+        data = llm.extract_json(llm.complete(SELECT_PROMPT, user, provider=provider, model=model))
         items = data.get("clips", []) if isinstance(data, dict) else data
         for it in items or []:
-            try:
-                out.append(Clip(
-                    start=float(it["start"]), end=float(it["end"]),
-                    title=str(it.get("title", "")).strip(),
-                    headline=str(it.get("headline", "")).strip(),
-                    topic=str(it.get("topic", "")).strip(),
-                    hook=str(it.get("hook", "")).strip(),
-                    reason=str(it.get("reason", "")).strip(),
-                    score=float(it.get("score", 50)),
-                    hashtags=[str(h) for h in it.get("hashtags", [])][:8],
-                    caption=str(it.get("caption", "")).strip(),
-                ))
-            except (KeyError, TypeError, ValueError):
+            if not isinstance(it, dict):
                 continue
+            rng = _ids(it, "start_id", "end_id")
+            if rng is None and "start" in it:  # model answered in seconds – snap it
+                c = snap_clip(Clip(float(it["start"]), float(it.get("end", 0))), t, min_len, max_len)
+                if c:
+                    si = min(range(len(sents)), key=lambda i: abs(sents[i].start - c.start))
+                    ei = min(range(len(sents)), key=lambda i: abs(sents[i].end - c.end))
+                    rng = (si, ei)
+            if rng:
+                fitted = _fit_range(sents, *rng, min_len, max_len)
+                if fitted:
+                    cands.append((*fitted, str(it.get("topic", ""))))
+    # Remove near-duplicates before ranking.
+    uniq: list[tuple[int, int, str]] = []
+    for c in cands:
+        if all(min(c[1], u[1]) - max(c[0], u[0]) < 0.5 * (c[1] - c[0] + 1) for u in uniq):
+            uniq.append(c)
+    if not uniq:
+        return []
+
+    # Stage 2 – score, tighten and write titles/headlines.
+    blocks = []
+    for k, (si, ei, topic) in enumerate(uniq):
+        dur = sents[ei].end - sents[si].start
+        body = "\n".join(f"  S{i}: {sents[i].text}" for i in range(si, ei + 1))
+        blocks.append(f"CANDIDATE id={k} (S{si}-S{ei}, {dur:.0f}s, topic: {topic or '-'})\n{body}")
+    user = (f"Length limits: {min_len:.0f}-{max_len:.0f} seconds. Language: {t.language} "
+            f"(write titles/captions in it).\n{extra}\n" + "\n\n".join(blocks))
+    data = llm.extract_json(llm.complete(RANK_PROMPT, user, provider=provider, model=model, max_tokens=8000))
+    ranked = data.get("ranked", []) if isinstance(data, dict) else data
+
+    out: list[Clip] = []
+    seen = set()
+    for it in ranked or []:
+        try:
+            k = int(it["id"])
+            base = uniq[k]
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        if k in seen:
+            continue
+        seen.add(k)
+        rng = _ids(it, "start_id", "end_id") or base[:2]
+        # Tightening may only narrow the candidate.
+        si, ei = max(base[0], rng[0]), min(base[1], rng[1])
+        fitted = _fit_range(sents, si, ei, min_len, max_len) or _fit_range(sents, base[0], base[1], min_len, max_len)
+        if not fitted:
+            continue
+        si, ei = fitted
+        sc = {key: max(0.0, min(25.0, float(it.get(key, 12)))) for key in ("hook", "flow", "value", "trend")}
+        out.append(Clip(
+            start=round(max(0.0, sents[si].start - 0.05), 2),
+            end=round(min(t.duration or sents[ei].end + 0.3, sents[ei].end + 0.3), 2),
+            title=str(it.get("title", "")).strip(),
+            headline=str(it.get("headline", "")).strip(),
+            topic=str(it.get("topic") or base[2]).strip(),
+            hook=sents[si].text,
+            reason=str(it.get("reason", "")).strip(),
+            score=round(sum(sc.values()), 1),
+            hashtags=[str(h) for h in it.get("hashtags", [])][:6],
+            caption=str(it.get("caption", "")).strip(),
+            scores=sc,
+        ))
     return out
 
 
@@ -200,11 +284,16 @@ def _score_text(text: str, duration: float, first_sentence: str) -> float:
     return max(0.0, min(100.0, score))
 
 
+BAD_STARTS = ("and ", "so ", "but ", "yeah", "like ", "um", "uh", "because ", "or ", "then ", "okay", "right")
+
+
 def _heuristic_clips(t: Transcript, n: int, min_len: float, max_len: float) -> list[Clip]:
-    segs = t.segments
+    segs = t.sentences()
     target = (min_len + max_len) / 2
     cands: list[Clip] = []
     for i, s in enumerate(segs):
+        if s.text.lower().startswith(BAD_STARTS):
+            continue  # never open a clip on a connector/filler word
         j = i
         while j + 1 < len(segs) and segs[j].end - s.start < target:
             j += 1
@@ -244,7 +333,10 @@ def find_highlights(
         raw = _heuristic_clips(t, num_clips, min_len, max_len)
     else:
         raw = _llm_clips(t, num_clips, min_len, max_len, provider, model, instructions)
-    snapped = [c for c in (snap_clip(c, t, min_len, max_len) for c in raw) if c]
+    if provider == "heuristic":
+        snapped = [c for c in (snap_clip(c, t, min_len, max_len) for c in raw) if c]
+    else:
+        snapped = raw  # already on exact sentence boundaries
     clips = dedupe(snapped)[:num_clips]
     for c in clips:
         if not c.title:

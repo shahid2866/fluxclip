@@ -118,6 +118,44 @@ def _median_filter(x: np.ndarray, k: int) -> np.ndarray:
     return np.median(windows, axis=1)
 
 
+def _region_motion(a: np.ndarray, b: np.ndarray, x0: float, y0: float, x1: float, y1: float) -> float:
+    h, w = a.shape[:2]
+    x0, x1 = int(max(0, x0)), int(min(w, x1))
+    y0, y1 = int(max(0, y0)), int(min(h, y1))
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return 0.0
+    return float(cv2.absdiff(a[y0:y1, x0:x1], b[y0:y1, x0:x1]).mean())
+
+
+def _pick_speaker(faces, frame, prev_gray, prev_x: float, crop_w: int):
+    """Choose the active speaker among several faces.
+
+    Mouth-region motion (minus whole-head motion) between two nearby frames is a cheap,
+    robust "who is talking" signal. Ties fall back to staying on the current person,
+    then to the biggest face.
+    """
+    def stay_bonus(f):
+        return 1.0 if abs(f[0] - prev_x) < crop_w * 0.3 else 0.0
+
+    if prev_gray is None:
+        return max(faces, key=lambda f: f[2] * f[3] * (1 + 0.3 * stay_bonus(f)))
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    scored = []
+    for f in faces:
+        cx, cy, w, h = f
+        mouth = _region_motion(gray, prev_gray, cx - 0.3 * w, cy + 0.15 * h, cx + 0.3 * w, cy + 0.55 * h)
+        eyes = _region_motion(gray, prev_gray, cx - 0.4 * w, cy - 0.35 * h, cx + 0.4 * w, cy - 0.05 * h)
+        scored.append((max(0.0, mouth - 0.6 * eyes), f))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top, second = scored[0][0], scored[1][0]
+    if top > 1.5 and top > 1.4 * second:
+        return scored[0][1]
+    current = [f for _, f in scored if stay_bonus(f)]
+    if current:
+        return current[0]
+    return max(faces, key=lambda f: f[2] * f[3])
+
+
 def compute_track(path: str, start: float, end: float, crop_w: int,
                   sample_every: float = 0.2) -> Track:
     if cv2 is None:
@@ -132,8 +170,11 @@ def compute_track(path: str, start: float, end: float, crop_w: int,
     sample_idx, sample_x = [], []
     hits = samples = 0
     prev_x = src_w / 2
+    prev_gray = None  # frame decoded just before each sample, for mouth-motion analysis
+    pre = step - 2 if step >= 3 else None
     for i in range(n_frames):
-        if i % step:
+        phase = i % step
+        if phase and phase != pre:
             if not cap.grab():
                 n_frames = i
                 break
@@ -142,16 +183,21 @@ def compute_track(path: str, start: float, end: float, crop_w: int,
         if not ok:
             n_frames = i
             break
+        if phase == pre:
+            prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            continue
         samples += 1
         faces = detect_faces(frame)
-        if faces:
-            hits += 1
-            # Prefer big faces, slightly prefer the one we're already on (stability).
-            best = max(faces, key=lambda f, px=prev_x: f[2] * f[3]
-                       * (1.3 if abs(f[0] - px) < crop_w * 0.3 else 1.0))
-            prev_x = best[0]
-            sample_idx.append(i)
-            sample_x.append(best[0])
+        if not faces:
+            continue
+        hits += 1
+        if len(faces) == 1:
+            best = faces[0]
+        else:
+            best = _pick_speaker(faces, frame, prev_gray, prev_x, crop_w)
+        prev_x = best[0]
+        sample_idx.append(i)
+        sample_x.append(best[0])
     cap.release()
     n_frames = max(1, n_frames)
 
@@ -169,7 +215,7 @@ def compute_track(path: str, start: float, end: float, crop_w: int,
     # Virtual camera: dead-zone + easing + hard cuts on big persistent jumps.
     dead = crop_w * 0.08
     cut = crop_w * 0.45
-    hold_frames = int(fps * 0.5)
+    hold_frames = int(fps * 1.0)  # a new shot must last ≥1 s (no ping-pong cuts)
     cam = np.empty(n_frames)
     c = target[0]
     for i, t in enumerate(target):

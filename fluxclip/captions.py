@@ -47,25 +47,61 @@ def _esc(s: str) -> str:
     return s.replace("\\", "").replace("{", "(").replace("}", ")").replace("\n", " ")
 
 
-def group_words(words: list[Word], max_words: int = 3, max_chars: int = 18,
+def _display(word: str, uppercase: bool) -> str:
+    """Caption text for one word: no trailing commas/periods (cleaner, like OpusClip)."""
+    txt = _esc(word.strip())
+    if len(txt) > 1:
+        txt = txt.rstrip(".,;:")
+    return txt.upper() if uppercase else txt
+
+
+def group_words(words: list[Word], max_words: int = 4, max_chars: int = 22,
                 max_gap: float = 0.6) -> list[list[Word]]:
-    groups: list[list[Word]] = []
+    """Group words into caption chunks.
+
+    1. Split into phrases at punctuation and pauses.
+    2. Split each phrase into balanced chunks (7 words -> 4+3, never a lone orphan word
+       when it can be avoided), respecting the character limit.
+    """
+    phrases: list[list[Word]] = []
     cur: list[Word] = []
     for w in words:
         text = w.word.strip()
         if not text:
             continue
-        chars = sum(len(x.word.strip()) + 1 for x in cur) + len(text)
-        if cur and (len(cur) >= max_words or chars > max_chars or w.start - cur[-1].end > max_gap):
-            groups.append(cur)
+        if cur and w.start - cur[-1].end > max_gap:
+            phrases.append(cur)
             cur = []
         cur.append(w)
-        if text[-1] in ".?!,":
-            groups.append(cur)
+        if text[-1] in ".?!,;:":
+            phrases.append(cur)
             cur = []
     if cur:
-        groups.append(cur)
-    return groups
+        phrases.append(cur)
+
+    def chars(ws: list[Word]) -> int:
+        return sum(len(x.word.strip()) for x in ws) + len(ws) - 1
+
+    groups: list[list[Word]] = []
+    for ph in phrases:
+        n_chunks = max(-(-len(ph) // max_words), -(-chars(ph) // max_chars), 1)
+        n_chunks = min(n_chunks, len(ph))
+        base, extra = divmod(len(ph), n_chunks)
+        i = 0
+        for k in range(n_chunks):
+            size = base + (1 if k < extra else 0)
+            groups.append(ph[i:i + size])
+            i += size
+    # Merge a lone short word into its neighbour when the result still fits.
+    merged: list[list[Word]] = []
+    for g in groups:
+        if (merged and len(g) == 1 and len(merged[-1]) < max_words
+                and chars(merged[-1] + g) <= max_chars and g[0].start - merged[-1][-1].end < max_gap
+                and merged[-1][-1].word.strip()[-1:] not in ".?!"):
+            merged[-1] = merged[-1] + g
+        else:
+            merged.append(g)
+    return merged
 
 
 def build_ass(
@@ -110,8 +146,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     rel = [Word(max(0.0, w.start - clip_start), min(clip_end, w.end) - clip_start, w.word)
            for w in words if w.end > clip_start and w.start < clip_end]
-    groups = group_words(rel, max_words=max_words)
+    groups = group_words(rel, max_words=max_words, max_chars=22)
     for gi, g in enumerate(groups):
+        # Two balanced lines when the group is long (e.g. "EVERYONE IS / FREAKING OUT").
+        texts = [_display(x.word, th.uppercase) for x in g]
+        total = sum(len(x) for x in texts) + len(texts) - 1
+        brk = -1
+        if len(g) >= 3 and total > 15:
+            best = None
+            for k in range(1, len(g)):
+                left = sum(len(x) for x in texts[:k]) + k - 1
+                diff = abs(left - (total - left - 1))
+                if best is None or diff <= best:
+                    best, brk = diff, k
         g_end = g[-1].end
         # Hold the group on screen until the next group starts (avoids flicker), max +0.5 s.
         if gi + 1 < len(groups):
@@ -122,17 +169,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if end <= start:
                 end = start + 0.05
             parts = []
-            for k, x in enumerate(g):
-                txt = _esc(x.word.strip())
-                if th.uppercase:
-                    txt = txt.upper()
+            for k, txt in enumerate(texts):
+                if k == brk:
+                    parts.append("\\N")
                 if k == wi:
                     pop = "\\fscx112\\fscy112" if th.pop else ""
                     parts.append(f"{{\\c{th.highlight}{pop}}}{txt}{{\\r}}")
                 else:
                     parts.append(txt)
             intro = "{\\fad(40,0)}" if wi == 0 else ""
-            lines.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Caption,,0,0,0,,{intro}{' '.join(parts)}")
+            text = " ".join(parts).replace(" \\N ", "\\N")
+            lines.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Caption,,0,0,0,,{intro}{text}")
     return header + "\n".join(lines) + "\n"
 
 

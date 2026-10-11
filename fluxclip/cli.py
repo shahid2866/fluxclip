@@ -18,8 +18,8 @@ from .utils import FluxClipError, resolve_input
 
 def _add_common(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("transcription")
-    g.add_argument("--whisper-model", default="small",
-                   help="tiny | base | small | medium | large-v3 (default: small)")
+    g.add_argument("--whisper-model", "--quality", default="auto",
+                   help="auto (default: large-v3-turbo on GPU, small on CPU) | fast | balanced | best | any Whisper model name")
     g.add_argument("--transcriber", default="local", choices=["local", "openai"])
     g.add_argument("--language", default=None, help="Force language code, e.g. en, hi, es")
 
@@ -41,7 +41,7 @@ def _add_render(p: argparse.ArgumentParser) -> None:
     g.add_argument("--layout", default="auto", choices=LAYOUTS)
     g.add_argument("--captions", default="opus", choices=[*THEMES, "none"])
     g.add_argument("--font", default="Poppins")
-    g.add_argument("--words", type=int, default=3, help="Words per caption")
+    g.add_argument("--words", type=int, default=4, help="Max words per caption (shown on up to 2 lines)")
     g.add_argument("--caption-pos", type=float, default=0.78, help="Vertical position 0-1")
     g.add_argument("--no-headline", dest="headline", action="store_false",
                    help="Disable the white headline box shown for the first 5 s")

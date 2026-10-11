@@ -23,7 +23,7 @@ class RenderOptions:
     layout: str = "auto"              # auto | crop (follow speaker) | fit (blurred background)
     caption_style: str = "opus"       # opus | bold | neon | fire | minimal | boxed | none
     font: str = "Poppins"             # bundled Poppins Bold is always available
-    words_per_caption: int = 3
+    words_per_caption: int = 4
     caption_position: float = 0.78    # vertical centre of captions (0 top – 1 bottom)
     headline: bool = True             # white headline box over the first seconds
     headline_seconds: float = 5.0
