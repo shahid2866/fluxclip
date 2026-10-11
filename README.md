@@ -114,7 +114,16 @@ An OpusClip-style web interface on top of the engine: paste a link or upload a v
 - **Find keywords or moments:** search the transcript and turn any hit into a clip in one click
 - **Settings:** choose Claude, OpenAI(-compatible), Ollama or offline; keys are stored only in your local database
 
-### Run it with Docker (easiest)
+### Run it on your computer (one click)
+
+Install [Python 3.10+](https://python.org), [Node.js 20+](https://nodejs.org) and FFmpeg (`winget install ffmpeg` on Windows, `brew install ffmpeg` on Mac). Then:
+
+- **Windows:** double-click `start-windows.bat`
+- **Mac / Linux:** run `./start.sh`
+
+The first run installs everything (a few minutes); then your browser opens http://localhost:3000.
+
+### Run it with Docker
 
 ```bash
 git clone https://github.com/OWNER/fluxclip && cd fluxclip
